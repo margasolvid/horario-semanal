@@ -115,6 +115,7 @@ tr.click{cursor:pointer}
     <div class="actions"><button class="btn sm" id="hoyBtn" type="button">Ir a esta semana</button></div>
     <div id="dias" style="display:flex;flex-direction:column;gap:12px"></div>
     <div class="stat" id="wsum"></div>
+    <div class="actions"><button class="btn pri" id="excelSemana" type="button">Excel de este mes para imprimir</button></div>
   </section>
 
   <section id="v-acum" hidden>
@@ -123,6 +124,7 @@ tr.click{cursor:pointer}
     <div class="card"><h3>Imprimir por meses</h3>
       <div class="field"><label for="mes">Mes</label><select id="mes"></select></div>
       <div class="actions"><button class="btn pri" id="word" type="button">Descargar en Word</button><button class="btn pri" id="excel" type="button">Descargar en Excel</button></div>
+      <div class="actions"><button class="btn" id="excelTodo" type="button">Todos los meses en un Excel (una hoja por mes)</button></div>
       <p class="a">El archivo trae cada día con sus horas, los que no computan, el total de cada semana y del mes, y el saldo acumulado.</p></div>
     <div class="card"><h3>Días que no computan y visitas médicas</h3><div id="ncList" class="a"></div></div>
   </section>
@@ -419,9 +421,8 @@ $("word").onclick = () => {
 <p style="color:#5d6a7e">«No computa» = cuenta como jornada hecha (examen, permiso, festivo…). «Visita médica» = se cuentan las horas trabajadas y el resto del día se da por hecho (tiempo indispensable para la cita). Los días pasados sin horas cuentan como horas de menos. «pendiente» = día que todavía no ha llegado.</p></body></html>`;
   descargar(`Horario_${D.titulo.replace(" ", "_")}.doc`, "﻿" + html, "application/msword");
 };
-$("excel").onclick = () => {
-  if (!window.XLSX) { toast("No se ha podido cargar Excel. Revisa la conexión."); return; }
-  const [y, m] = mesElegido(), D = datosMes(y, m);
+function hojaMes(y, m) {
+  const D = datosMes(y, m);
   const aoa = [[`Horario de ${D.titulo}`], [`Jornada ${hm(S.ajustes.semanal)} h semanales (${hm(objDia())} h al día)`], [],
     ["Día", "Fecha", "Tramos", "Horas hechas", "No computa", "Computan", "Diferencia", "Nota"]];
   D.filas.forEach((r, i) => {
@@ -435,9 +436,26 @@ $("excel").onclick = () => {
     ["Saldo acumulado a final de mes", "", "", "", "", "", firmado(D.saldo), ""], [], ...filasLibres(y));
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws["!cols"] = [{ wch: 12 }, { wch: 12 }, { wch: 26 }, { wch: 13 }, { wch: 18 }, { wch: 14 }, { wch: 12 }, { wch: 30 }];
-  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, D.titulo.slice(0, 31));
-  XLSX.writeFile(wb, `Horario_${D.titulo.replace(" ", "_")}.xlsx`);
+  ws["!margins"] = { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 };
+  return { ws, D };
+}
+const PREF_XLS = "Horario_";
+function excelMes(y, m) {
+  if (!window.XLSX) { toast("No se ha podido cargar Excel. Revisa la conexión."); return; }
+  const { ws, D } = hojaMes(y, m), wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, D.titulo.slice(0, 31));
+  XLSX.writeFile(wb, `${PREF_XLS}${D.titulo.replace(" ", "_")}.xlsx`);
+}
+$("excel").onclick = () => { const [y, m] = mesElegido(); excelMes(y, m); };
+$("excelTodo").onclick = () => {
+  if (!window.XLSX) { toast("No se ha podido cargar Excel. Revisa la conexión."); return; }
+  const ms = mesesDisponibles(); if (!ms.length) { toast("Todavía no hay meses con datos"); return; }
+  const wb = XLSX.utils.book_new();
+  for (const [y, m] of ms) { const { ws, D } = hojaMes(y, m); XLSX.utils.book_append_sheet(wb, ws, D.titulo.slice(0, 31)); }
+  XLSX.writeFile(wb, `${PREF_XLS}todos_los_meses_${HOY}.xlsx`);
+  toast(`Excel con ${ms.length} meses, uno en cada hoja`);
 };
+$("excelSemana").onclick = () => { const d = sumar(lunesVista, 3); excelMes(d.getFullYear(), d.getMonth()); };
 
 // ---------- pestañas ----------
 function irA(v) { vista = v; document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.v === v));
