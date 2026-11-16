@@ -68,6 +68,8 @@ section{display:flex;flex-direction:column;gap:12px}
 .chip.mal{background:var(--minus-soft);color:var(--minus)}
 .chip.nc{background:var(--surface);color:var(--nc)}
 .chip.pend{background:var(--ink-soft);color:var(--ink)}
+.chip.vm{background:var(--plus-soft);color:var(--plus)}
+.day.vm{border:1px dashed var(--plus)}
 .tramo{display:grid;grid-template-columns:1fr auto 1fr auto;gap:6px;align-items:center}
 .tramo input[type=time]{font:16px var(--f-num);padding:8px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--fg);width:100%;min-width:0}
 .tramo span{color:var(--muted)}
@@ -121,7 +123,7 @@ tr.click{cursor:pointer}
       <div class="field"><label for="mes">Mes</label><select id="mes"></select></div>
       <div class="actions"><button class="btn pri" id="word" type="button">Descargar en Word</button><button class="btn pri" id="excel" type="button">Descargar en Excel</button></div>
       <p class="a">El archivo trae cada día con sus horas, los que no computan, el total de cada semana y del mes, y el saldo acumulado.</p></div>
-    <div class="card"><h3>Días que no computan</h3><div id="ncList" class="a"></div></div>
+    <div class="card"><h3>Días que no computan y visitas médicas</h3><div id="ncList" class="a"></div></div>
   </section>
 
   <section id="v-ajustes" hidden>
@@ -188,6 +190,7 @@ function estadoDia(f) {   // {comp: horas que computan | null si pendiente, tipo
   const r = S.dias[f], obj = objDia();
   if ((S.ajustes.inicio && f < S.ajustes.inicio) || (S.ajustes.fin && f > S.ajustes.fin)) return { comp: null, tipo: "fuera" };
   if (r && r.nc) return { comp: obj, tipo: "nc", hechas: 0 };
+  if (r && r.vm) { const hv = horasTramos(r.tramos); return { comp: Math.max(hv, obj), tipo: "vm", hechas: hv, med: Math.max(obj - hv, 0) }; }   // visita médica: lo que falta se da por hecho
   const h = horasTramos(r && r.tramos);
   if (h > 0) return { comp: h, tipo: h + 1e-9 >= obj ? "ok" : "mal", hechas: h };
   if (f < HOY) return { comp: 0, tipo: "mal", hechas: 0 };
@@ -200,7 +203,7 @@ function semana(lunes) {
   return { dias, comp, debe, dif: comp - debe };
 }
 function primeraSemana() {
-  const fs = Object.keys(S.dias).filter(f => { const r = S.dias[f]; return r && (r.nc || horasTramos(r.tramos) > 0); }).sort();
+  const fs = Object.keys(S.dias).filter(f => { const r = S.dias[f]; return r && (r.nc || r.vm || horasTramos(r.tramos) > 0); }).sort();
   const base = S.ajustes.inicio || fs[0];
   return base ? lunesDe(deIso(base)) : null;
 }
@@ -231,10 +234,11 @@ function renderSemana() {
   $("dias").innerHTML = w.dias.map(({ f, e }, i) => {
     const r = S.dias[f] || {}, tr = (r.tramos && r.tramos.length) ? r.tramos : [["", ""]];
     const chip = e.tipo === "nc" ? `<span class="chip nc">No computa · cuenta ${hm(objDia())}</span>`
+      : e.tipo === "vm" ? `<span class="chip vm">Visita médica · ${hm(e.hechas)} h + ${hm(e.med)} h médico</span>`
       : e.tipo === "ok" ? `<span class="chip ok">${hm(e.hechas)} h${e.hechas - objDia() > 1e-9 ? " · " + firmado(e.hechas - objDia()) : ""}</span>`
       : e.tipo === "mal" ? `<span class="chip mal">${hm(e.hechas)} h · ${firmado(e.hechas - objDia())}</span>`
       : e.tipo === "fuera" ? `<span class="chip pend">Fuera del periodo</span>` : `<span class="chip pend">Pendiente</span>`;
-    return `<div class="day ${f === HOY ? "hoy" : ""} ${r.nc ? "nc" : ""}" data-f="${f}">
+    return `<div class="day ${f === HOY ? "hoy" : ""} ${r.nc ? "nc" : r.vm ? "vm" : ""}" data-f="${f}">
       <div class="dhead"><h3>${DIAS[i]}<small>${corto(deIso(f))}${f === HOY ? " · hoy" : ""}</small></h3>${chip}</div>
       ${r.nc ? "" : tr.map(([a, b], k) => `<div class="tramo"><input type="time" id="e-${f}-${k}" aria-label="Entrada" data-k="${k}" data-p="0" value="${esc(a)}"><span>a</span>
         <input type="time" id="s-${f}-${k}" aria-label="Salida" data-k="${k}" data-p="1" value="${esc(b)}">
@@ -242,6 +246,7 @@ function renderSemana() {
       <div class="drow">
         ${r.nc ? "" : `<button class="btn sm" type="button" data-add="1">+ Otro tramo</button>`}
         <label><input type="checkbox" id="nc-${f}" data-nc="1" ${r.nc ? "checked" : ""}> No computa</label>
+        ${r.nc ? "" : `<label><input type="checkbox" id="vm-${f}" data-vm="1" ${r.vm ? "checked" : ""}> Visita médica</label>`}
         ${r.nc ? `<select id="m-${f}" data-motivo="1" aria-label="Motivo">${MOTIVOS.map(m => `<option ${r.motivo === m ? "selected" : ""}>${m}</option>`).join("")}</select>` : ""}
         <input type="text" id="n-${f}" data-nota="1" placeholder="Nota (opcional)" value="${esc(r.nota || "")}">
       </div></div>`;
@@ -259,8 +264,8 @@ function renderAcum() {
       <td class="r num ${w.dif > 1e-9 ? "pos" : w.dif < -1e-9 ? "neg" : ""}">${firmado(w.dif)}</td><td class="r num"><b>${firmado(acc)}</b></td></tr>`).join("")
     : `<tr><td colspan="5" class="a">Todavía no hay horas apuntadas.</td></tr>`)
     + (S.ajustes.saldoIni ? `<tr><td>Saldo inicial</td><td></td><td></td><td class="r num">${firmado(S.ajustes.saldoIni)}</td><td></td></tr>` : "");
-  const nc = Object.entries(S.dias).filter(([, r]) => r.nc).sort((a, b) => b[0].localeCompare(a[0]));
-  $("ncList").innerHTML = nc.length ? nc.map(([f, r]) => `${DIAS[(deIso(f).getDay() + 6) % 7]} ${corto(deIso(f))}: <b>${esc(r.motivo || "No computa")}</b>${r.nota ? " · " + esc(r.nota) : ""}`).join("<br>") : "Ninguno por ahora.";
+  const nc = Object.entries(S.dias).filter(([, r]) => r.nc || r.vm).sort((a, b) => b[0].localeCompare(a[0]));
+  $("ncList").innerHTML = nc.length ? nc.map(([f, r]) => `${DIAS[(deIso(f).getDay() + 6) % 7]} ${corto(deIso(f))}: <b>${r.nc ? esc(r.motivo || "No computa") : `Visita médica (${hm(estadoDia(f).med || 0)} h justificadas)`}</b>${r.nota ? " · " + esc(r.nota) : ""}`).join("<br>") : "Ninguno por ahora.";
 }
 
 function renderAjustes() {
@@ -272,11 +277,12 @@ function renderAll() { renderSaldo(); renderSemana(); renderAcum(); renderAjuste
 
 // ---------- edición ----------
 const dia = f => (S.dias[f] ||= { tramos: [["", ""]], nc: false, motivo: "", nota: "" });
-function limpiar(f) { const r = S.dias[f]; if (r && !r.nc && !r.nota && !(r.tramos || []).some(([a, b]) => a || b)) delete S.dias[f]; }
+function limpiar(f) { const r = S.dias[f]; if (r && !r.nc && !r.vm && !r.nota && !(r.tramos || []).some(([a, b]) => a || b)) delete S.dias[f]; }
 $("dias").addEventListener("change", e => {
   const card = e.target.closest(".day"); if (!card) return; const f = card.dataset.f, r = dia(f), t = e.target;
   if (t.type === "time") { r.tramos ||= [["", ""]]; r.tramos[+t.dataset.k] ||= ["", ""]; r.tramos[+t.dataset.k][+t.dataset.p] = t.value; }
   else if (t.dataset.nc) { r.nc = t.checked; if (r.nc && !r.motivo) r.motivo = "Examen"; }
+  else if (t.dataset.vm) r.vm = t.checked;
   else if (t.dataset.motivo) r.motivo = t.value;
   else if (t.dataset.nota) r.nota = t.value.trim();
   limpiar(f); guardar(); renderAll();
@@ -335,7 +341,7 @@ function datosMes(y, m) {
     hechas += horasTramos(r.tramos);
     filas.push({ f, lun, dia: DIAS[wd], fecha: fecha.toLocaleDateString("es-ES"),
       tramos: (r.tramos || []).filter(([a, b]) => a && b).map(([a, b]) => a + "–" + b).join("  ·  "),
-      hechas: horasTramos(r.tramos), nc: r.nc ? (r.motivo || "No computa") : "", comp: e.comp,
+      hechas: horasTramos(r.tramos), nc: r.nc ? (r.motivo || "No computa") : r.vm ? `Visita médica (${hm(e.med || 0)} h justificadas)` : "", comp: e.comp,
       dif: e.comp == null ? null : e.comp - objDia(), nota: r.nota || "" });
   }
   const finMes = iso(new Date(y, m, ultimo));
@@ -361,7 +367,7 @@ $("word").onclick = () => {
 <table><tr><th>Día</th><th>Fecha</th><th>Tramos</th><th>Horas hechas</th><th>No computa</th><th>Computan</th><th>Diferencia</th><th>Nota</th></tr>${body}</table>
 <p><b>Total del mes:</b> ${hm(D.comp)} h computadas de ${hm(D.debe)} h que tocaban · diferencia <b>${firmado(D.dif)}</b>.<br>
 <b>Saldo acumulado a final de mes:</b> ${firmado(D.saldo)} h ${D.saldo > 1e-9 ? "de más" : D.saldo < -1e-9 ? "de menos" : ""}.</p>
-<p style="color:#5d6a7e">«No computa» = cuenta como jornada hecha (examen, permiso, festivo…). Los días pasados sin horas cuentan como horas de menos. «pendiente» = día que todavía no ha llegado.</p></body></html>`;
+<p style="color:#5d6a7e">«No computa» = cuenta como jornada hecha (examen, permiso, festivo…). «Visita médica» = se cuentan las horas trabajadas y el resto del día se da por hecho (tiempo indispensable para la cita). Los días pasados sin horas cuentan como horas de menos. «pendiente» = día que todavía no ha llegado.</p></body></html>`;
   descargar(`Horario_${D.titulo.replace(" ", "_")}.doc`, "﻿" + html, "application/msword");
 };
 $("excel").onclick = () => {
