@@ -99,6 +99,7 @@ tr.click{cursor:pointer}
     <p class="sub" id="sub"></p>
   </header>
   <div class="saldo" id="saldo"></div>
+  <div class="saldo" id="libres"></div>
   <nav class="tabs" role="tablist">
     <button role="tab" aria-selected="true" data-v="semana" id="t-semana">Semana</button>
     <button role="tab" aria-selected="false" data-v="acum" id="t-acum">Acumulación de horas</button>
@@ -139,6 +140,16 @@ tr.click{cursor:pointer}
         <input id="saldoIni" type="text" placeholder="Ej.: 3:30 o -2:00" inputmode="text"><small>Con el signo menos si son horas que debes.</small></div>
     </div>
     <div class="card">
+      <h3>Moscosos y vacaciones</h3>
+      <div class="field"><label for="moscBase">Moscosos (asuntos propios) al año</label>
+        <input id="moscBase" type="number" min="0" max="30" step="1" inputmode="numeric"></div>
+      <div class="field"><label for="vacas">Días hábiles de vacaciones al año</label>
+        <input id="vacas" type="number" min="0" max="60" step="1" inputmode="numeric"></div>
+      <div class="field"><label for="anyoAj">Año</label><select id="anyoAj"></select></div>
+      <div class="field"><label for="moscExtra">Moscosos adicionales ese año (por antigüedad)</label>
+        <select id="moscExtra"><option value="0">Ninguno</option><option value="1">1 día más</option><option value="2">2 días más</option><option value="3">3 días más</option><option value="4">4 días más</option></select><small>Se suman a los moscosos de ese año. Elige otro año arriba para cambiarlo.</small></div>
+    </div>
+    <div class="card">
       <h3>Copia de seguridad</h3>
       <p class="a">Los datos se guardan en este móvil. Exporta de vez en cuando para no perderlos o para pasarlos a otro móvil.</p>
       <div class="actions">
@@ -154,14 +165,15 @@ tr.click{cursor:pointer}
 <script>
 const $ = id => document.getElementById(id);
 const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"];
-const MOTIVOS = ["Examen", "Permiso", "Asuntos propios", "Vacaciones", "Festivo", "Baja médica", "Formación", "Otro"];
+const MOTIVOS = ["Examen", "Permiso", "Moscoso", "Vacaciones", "Festivo", "Baja médica", "Formación", "Otro"];
 const LS = "horario-semanal-v1";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 const FESTIVOS = { "2026-12-08": "Inmaculada Concepción", "2026-12-25": "Navidad", "2027-01-01": "Año Nuevo", "2027-01-06": "Reyes" };
-let S = { ajustes: { semanal: 35, inicio: "2026-11-16", fin: "2027-01-31", saldoIni: 0 },
+let S = { ajustes: { semanal: 35, inicio: "2026-11-16", fin: "2027-01-31", saldoIni: 0, moscosos: 6, vacaciones: 22, extra: {} },
   dias: Object.fromEntries(Object.entries(FESTIVOS).map(([f, n]) => [f, { tramos: [["", ""]], nc: true, motivo: "Festivo", nota: n }])) };
 try { const g = JSON.parse(localStorage.getItem(LS)); if (g && g.dias) S = { ...S, ...g, ajustes: { ...S.ajustes, ...g.ajustes } }; } catch (e) {}
+for (const r of Object.values(S.dias)) if (r && r.motivo === "Asuntos propios") r.motivo = "Moscoso";
 const guardar = () => { try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) { toast("No se ha podido guardar en este móvil"); } };
 function toast(m) { const t = $("toast"); t.textContent = m; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, 2200); }
 
@@ -175,6 +187,26 @@ const HOY = iso(new Date());
 
 // ---------- horas ----------
 const objDia = () => S.ajustes.semanal / 5;
+// ---------- moscosos y vacaciones ----------
+function libres(y) {
+  let m = 0, v = 0;
+  for (const [f, r] of Object.entries(S.dias)) if (r && r.nc && f.startsWith(y + "-")) { if (r.motivo === "Moscoso") m++; else if (r.motivo === "Vacaciones") v++; }
+  const extra = +((S.ajustes.extra || {})[y] || 0), base = +S.ajustes.moscosos || 0, totM = base + extra, totV = +S.ajustes.vacaciones || 0;
+  return { y, m, v, base, extra, totM, totV, quedanM: totM - m, quedanV: totV - v };
+}
+const anyoVista = () => sumar(lunesVista, 3).getFullYear();
+function avisoLibres(f, mot) {
+  const L = libres(+f.slice(0, 4));
+  if (mot === "Moscoso") toast(L.quedanM < 0 ? `Te has pasado: llevas ${L.m} moscosos de ${L.totM} en ${L.y}` : `Moscoso apuntado · te quedan ${L.quedanM} de ${L.totM}`);
+  else if (mot === "Vacaciones") toast(L.quedanV < 0 ? `Te has pasado: llevas ${L.v} días de vacaciones de ${L.totV} en ${L.y}` : `Vacaciones apuntadas · te quedan ${L.quedanV} de ${L.totV} días`);
+}
+function renderLibres() {
+  const L = libres(anyoVista()), c = n => n < 0 ? "neg" : "";
+  $("libres").innerHTML = `
+    <div class="stat"><b class="num ${c(L.quedanM)}">${L.quedanM} de ${L.totM}</b><span>moscosos que te quedan en ${L.y}${L.extra ? ` (${L.base} + ${L.extra} por antigüedad)` : ""}</span></div>
+    <div class="stat"><b class="num ${c(L.quedanV)}">${L.quedanV} de ${L.totV}</b><span>días de vacaciones que te quedan en ${L.y}</span></div>`;
+}
+const filasLibres = y => { const L = libres(y); return [[`Moscosos ${y}`, "", "", "", "", `${L.m} usados de ${L.totM}`, `quedan ${L.quedanM}`, ""], [`Vacaciones ${y}`, "", "", "", "", `${L.v} usados de ${L.totV}`, `quedan ${L.quedanV}`, ""]]; };
 const hm = h => { const neg = h < -1e-9, m = Math.round(Math.abs(h) * 60); return (neg ? "−" : "") + Math.floor(m / 60) + ":" + String(m % 60).padStart(2, "0"); };
 const firmado = h => (h > 1e-9 ? "+" : "") + hm(h);
 const leerHM = s => { s = String(s || "").trim().replace(",", ".").replace("−", "-"); if (!s) return 0;
@@ -233,7 +265,7 @@ function renderSemana() {
   $("hoyBtn").hidden = iso(l) === iso(lunesDe(new Date()));
   $("dias").innerHTML = w.dias.map(({ f, e }, i) => {
     const r = S.dias[f] || {}, tr = (r.tramos && r.tramos.length) ? r.tramos : [["", ""]];
-    const chip = e.tipo === "nc" ? `<span class="chip nc">No computa · cuenta ${hm(objDia())}</span>`
+    const chip = e.tipo === "nc" ? `<span class="chip nc">${esc(r.motivo || "No computa")} · cuenta ${hm(objDia())}</span>`
       : e.tipo === "vm" ? `<span class="chip vm">Visita médica · ${hm(e.hechas)} h + ${hm(e.med)} h médico</span>`
       : e.tipo === "ok" ? `<span class="chip ok">${hm(e.hechas)} h${e.hechas - objDia() > 1e-9 ? " · " + firmado(e.hechas - objDia()) : ""}</span>`
       : e.tipo === "mal" ? `<span class="chip mal">${hm(e.hechas)} h · ${firmado(e.hechas - objDia())}</span>`
@@ -245,6 +277,7 @@ function renderSemana() {
         <button class="btn del" type="button" data-quitar="${k}" aria-label="Quitar tramo">✕</button></div>`).join("")}
       <div class="drow">
         ${r.nc ? "" : `<button class="btn sm" type="button" data-add="1">+ Otro tramo</button>`}
+        ${r.nc ? "" : `<button class="btn sm" type="button" data-libre="Moscoso">Moscoso</button><button class="btn sm" type="button" data-libre="Vacaciones">Vacaciones</button>`}
         <label><input type="checkbox" id="nc-${f}" data-nc="1" ${r.nc ? "checked" : ""}> No computa</label>
         ${r.nc ? "" : `<label><input type="checkbox" id="vm-${f}" data-vm="1" ${r.vm ? "checked" : ""}> Visita médica</label>`}
         ${r.nc ? `<select id="m-${f}" data-motivo="1" aria-label="Motivo">${MOTIVOS.map(m => `<option ${r.motivo === m ? "selected" : ""}>${m}</option>`).join("")}</select>` : ""}
@@ -252,6 +285,7 @@ function renderSemana() {
       </div></div>`;
   }).join("");
   const cls = w.dif > 1e-9 ? "pos" : w.dif < -1e-9 ? "neg" : "";
+  renderLibres();
   $("wsum").innerHTML = `<b class="num">${hm(w.comp)} de ${hm(w.debe)} h</b><span>computadas en los días que ya cuentan · diferencia <b class="num ${cls}" style="display:inline;font-size:15px">${firmado(w.dif)}</b>${w.dif > 1e-9 ? " (pasa a acumulación)" : ""}</span>`;
 }
 
@@ -268,7 +302,13 @@ function renderAcum() {
   $("ncList").innerHTML = nc.length ? nc.map(([f, r]) => `${DIAS[(deIso(f).getDay() + 6) % 7]} ${corto(deIso(f))}: <b>${r.nc ? esc(r.motivo || "No computa") : `Visita médica (${hm(estadoDia(f).med || 0)} h justificadas)`}</b>${r.nota ? " · " + esc(r.nota) : ""}`).join("<br>") : "Ninguno por ahora.";
 }
 
+let anyoAj = null;
 function renderAjustes() {
+  anyoAj ||= anyoVista();
+  const y0 = new Date().getFullYear(), ys = [...new Set([y0 - 1, y0, y0 + 1, y0 + 2, anyoAj])].sort();
+  $("anyoAj").innerHTML = ys.map(y => `<option ${y === anyoAj ? "selected" : ""}>${y}</option>`).join("");
+  $("moscBase").value = S.ajustes.moscosos; $("vacas").value = S.ajustes.vacaciones;
+  $("moscExtra").value = String((S.ajustes.extra || {})[anyoAj] || 0);
   $("semanal").value = S.ajustes.semanal; $("inicio").value = S.ajustes.inicio || ""; $("fin").value = S.ajustes.fin || "";
   $("saldoIni").value = S.ajustes.saldoIni ? firmado(S.ajustes.saldoIni).replace("−", "-") : "";
   $("diaInfo").textContent = `Son ${hm(objDia())} h cada día.`;
@@ -286,9 +326,12 @@ $("dias").addEventListener("change", e => {
   else if (t.dataset.motivo) r.motivo = t.value;
   else if (t.dataset.nota) r.nota = t.value.trim();
   limpiar(f); guardar(); renderAll();
+  if ((t.dataset.nc || t.dataset.motivo) && r.nc) avisoLibres(f, r.motivo);
 });
 $("dias").addEventListener("click", e => {
   const card = e.target.closest(".day"); if (!card) return; const f = card.dataset.f;
+  const lb = e.target.closest("[data-libre]");
+  if (lb) { const r = dia(f); r.nc = true; r.vm = false; r.motivo = lb.dataset.libre; guardar(); renderAll(); avisoLibres(f, r.motivo); return; }
   if (e.target.closest("[data-add]")) { const r = dia(f); r.tramos = [...(r.tramos || [["", ""]]), ["", ""]]; guardar(); renderSemana(); }
   const q = e.target.closest("[data-quitar]");
   if (q) { const r = dia(f); r.tramos.splice(+q.dataset.quitar, 1); if (!r.tramos.length) r.tramos = [["", ""]]; limpiar(f); guardar(); renderAll(); }
@@ -300,6 +343,10 @@ $("acumBody").addEventListener("click", e => { const tr = e.target.closest("tr[d
 $("semanal").onchange = e => { const v = parseFloat(String(e.target.value).replace(",", ".")); if (v > 0) { S.ajustes.semanal = v; guardar(); } renderAll(); };
 $("inicio").onchange = e => { S.ajustes.inicio = e.target.value; guardar(); renderAll(); };
 $("fin").onchange = e => { S.ajustes.fin = e.target.value; guardar(); renderAll(); };
+$("anyoAj").onchange = e => { anyoAj = +e.target.value; renderAjustes(); };
+$("moscBase").onchange = e => { const v = parseInt(e.target.value, 10); if (v >= 0) { S.ajustes.moscosos = v; guardar(); } renderAll(); };
+$("vacas").onchange = e => { const v = parseInt(e.target.value, 10); if (v >= 0) { S.ajustes.vacaciones = v; guardar(); } renderAll(); };
+$("moscExtra").onchange = e => { S.ajustes.extra = { ...(S.ajustes.extra || {}), [anyoAj]: +e.target.value }; guardar(); renderAll(); };
 $("saldoIni").onchange = e => { S.ajustes.saldoIni = leerHM(e.target.value); guardar(); renderAll(); };
 
 // ---------- copias ----------
@@ -310,6 +357,7 @@ $("impf").onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
   try { const d = JSON.parse(await f.text()); if (!d.dias) throw 0;
     let n = 0; for (const [k, v] of Object.entries(d.dias)) if (!S.dias[k]) { S.dias[k] = v; n++; }   // junta: no pisa lo que ya tienes
+    for (const [y, n] of Object.entries(d.ajustes?.extra || {})) if (!(S.ajustes.extra ||= {})[y]) S.ajustes.extra[y] = n;
     if (!S.ajustes.inicio && d.ajustes?.inicio) S.ajustes.inicio = d.ajustes.inicio;
     guardar(); renderAll(); toast(n ? `Importados ${n} días` : "No había días nuevos");
   } catch (err) { toast("Ese archivo no es una copia del horario"); }
@@ -367,6 +415,7 @@ $("word").onclick = () => {
 <table><tr><th>Día</th><th>Fecha</th><th>Tramos</th><th>Horas hechas</th><th>No computa</th><th>Computan</th><th>Diferencia</th><th>Nota</th></tr>${body}</table>
 <p><b>Total del mes:</b> ${hm(D.comp)} h computadas de ${hm(D.debe)} h que tocaban · diferencia <b>${firmado(D.dif)}</b>.<br>
 <b>Saldo acumulado a final de mes:</b> ${firmado(D.saldo)} h ${D.saldo > 1e-9 ? "de más" : D.saldo < -1e-9 ? "de menos" : ""}.</p>
+<p>${(L => `<b>Moscosos ${y}:</b> ${L.m} usados de ${L.totM} (quedan ${L.quedanM}) · <b>Vacaciones ${y}:</b> ${L.v} días usados de ${L.totV} (quedan ${L.quedanV}).`)(libres(y))}</p>
 <p style="color:#5d6a7e">«No computa» = cuenta como jornada hecha (examen, permiso, festivo…). «Visita médica» = se cuentan las horas trabajadas y el resto del día se da por hecho (tiempo indispensable para la cita). Los días pasados sin horas cuentan como horas de menos. «pendiente» = día que todavía no ha llegado.</p></body></html>`;
   descargar(`Horario_${D.titulo.replace(" ", "_")}.doc`, "﻿" + html, "application/msword");
 };
@@ -383,7 +432,7 @@ $("excel").onclick = () => {
     }
   });
   aoa.push([], ["Total del mes", "", "", hm(D.hechas), "", `${hm(D.comp)} de ${hm(D.debe)}`, firmado(D.dif), ""],
-    ["Saldo acumulado a final de mes", "", "", "", "", "", firmado(D.saldo), ""]);
+    ["Saldo acumulado a final de mes", "", "", "", "", "", firmado(D.saldo), ""], [], ...filasLibres(y));
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws["!cols"] = [{ wch: 12 }, { wch: 12 }, { wch: 26 }, { wch: 13 }, { wch: 18 }, { wch: 14 }, { wch: 12 }, { wch: 30 }];
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, D.titulo.slice(0, 31));
